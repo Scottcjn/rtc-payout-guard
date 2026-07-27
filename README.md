@@ -107,3 +107,37 @@ pytest
 ## License
 
 AGPL-3.0-or-later. Copyright (C) 2026 Elyan Labs LLC.
+
+## Social watch: detecting star, fork and follow reversals
+
+GitHub has no unstar, unfork or unfollow event. `WatchEvent` fires when someone
+stars and never when they remove it, and the events feed expires. So a
+contributor who stars a repo, claims the bounty, takes payment and quietly
+removes the star leaves no trace that any API will show you afterwards.
+
+The only way to see it is to record membership yourself and diff it.
+
+```bash
+python3 scripts/social_snapshot.py --db ~/.elyan/social_watch.db   # snapshot
+python3 scripts/social_snapshot.py --db ... --report               # removals
+```
+
+Runs hourly via `scripts/social_watch_cron.sh`. Exit code is 1 when removals
+were found, so it can gate an alert.
+
+**What it cannot do.** The first run is a baseline and detects nothing.
+Removals are visible from the second run onward, and no amount of cleverness
+recovers history that was never recorded. This is why the baseline matters more
+than the tooling around it.
+
+**The failure mode it is built to avoid.** A failed or truncated API response
+must never be recorded as an empty membership, because that would look
+identical to every member removing at once. Fetch errors are recorded as
+skipped and the previous state is left untouched; a truncated body is retried
+rather than parsed partially. The one exception is a list endpoint returning
+404 on a repo that itself resolves, which is genuinely zero members and is
+recorded as such.
+
+`cross_reference_paid()` joins removals against a map of who was paid, which is
+the list that actually costs money: people who took RTC for a state they later
+reverted.
