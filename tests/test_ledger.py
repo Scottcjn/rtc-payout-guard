@@ -89,3 +89,86 @@ def test_idempotency_key_long_inputs_truncated_but_unique():
     assert len(long2) <= 128
     assert re.fullmatch(r"[A-Za-z0-9._:\-]{1,128}", long1)
     assert long1 != long2
+
+
+# --- destination canonicalization -------------------------------------
+#
+# wallets.py accepts an uppercase hex body as the same wallet and returns
+# the canonical lowercase form; stars.py case-folds repo names before
+# comparing. Ledger rows carry whatever the payout system recorded, which
+# is often the form the contributor typed into a claim comment. Comparing
+# those as raw strings makes a second payment to the same wallet look like
+# a first payment - the exact double-pay this module exists to stop.
+
+LOWER = "RTC" + "9f2a1b" + "0" * 34
+UPPER = "RTC" + "9F2A1B" + "0" * 34
+
+
+def test_check_duplicate_matches_same_wallet_written_in_uppercase():
+    rows = [_row(UPPER, 25.0, "bounty:pr-142", T0, ref="pr-142")]
+    guard = ledger.PaymentGuard(lambda: rows)
+    dups = guard.check_duplicate(LOWER, 25.0, lookback_days=7, now=T0 + 86400)
+    assert len(dups) == 1
+    assert dups[0]["ref"] == "pr-142"
+
+
+def test_check_duplicate_matches_canonical_row_from_typed_uppercase_input():
+    # Same miss in the other direction: canonical ledger, uppercase input.
+    rows = [_row(LOWER, 25.0, "bounty:pr-142", T0)]
+    guard = ledger.PaymentGuard(lambda: rows)
+    assert guard.check_duplicate(UPPER, 25.0, lookback_days=7, now=T0 + 86400)
+
+
+def test_check_duplicate_ignores_surrounding_whitespace():
+    rows = [_row("  " + LOWER + "\n", 25.0, "bounty:pr-142", T0)]
+    guard = ledger.PaymentGuard(lambda: rows)
+    assert guard.check_duplicate(LOWER, 25.0, lookback_days=7, now=T0 + 86400)
+
+
+def test_check_duplicate_still_separates_genuinely_different_wallets():
+    # Regression guard: canonicalization must not merge distinct addresses.
+    other = "RTC" + "9f2a1c" + "0" * 34
+    rows = [_row(other, 25.0, "bounty:pr-142", T0)]
+    guard = ledger.PaymentGuard(lambda: rows)
+    assert guard.check_duplicate(LOWER, 25.0, lookback_days=7, now=T0 + 86400) == []
+
+
+def test_check_duplicate_does_not_case_fold_miner_id_names():
+    # Miner-id names are registered identities, not hex; folding their case
+    # would merge two different registered payees.
+    rows = [_row("Frozen-Factorio-Ryan", 25.0, "bounty:pr-9", T0)]
+    guard = ledger.PaymentGuard(lambda: rows)
+    got = guard.check_duplicate("frozen-factorio-ryan", 25.0, lookback_days=7, now=T0)
+    assert got == []
+
+
+def test_auto_tier_duplicate_detected_across_case_variants():
+    rows = [
+        _row(LOWER, 5.0, "admin_transfer", T0),
+        _row(UPPER, 25.0, "bounty:pr-142", T0 + 7200, ref="pr-142"),
+    ]
+    findings = ledger.detect_auto_tier_duplicates(rows)
+    assert len(findings) == 1
+    assert findings[0]["dest"] == LOWER  # reported canonically
+    assert findings[0]["manual_row"]["ref"] == "pr-142"
+
+
+def test_rows_without_a_destination_are_not_paired_with_each_other():
+    rows = [
+        {"amount_rtc": 5.0, "reason": "admin_transfer", "timestamp": T0},
+        {"amount_rtc": 25.0, "reason": "bounty:pr-1", "timestamp": T0 + 60, "ref": "pr-1"},
+    ]
+    assert ledger.detect_auto_tier_duplicates(rows) == []
+
+
+def test_check_duplicate_with_empty_destination_matches_nothing():
+    rows = [_row("", 25.0, "bounty:pr-1", T0)]
+    guard = ledger.PaymentGuard(lambda: rows)
+    assert guard.check_duplicate("", 25.0, lookback_days=7, now=T0) == []
+
+
+def test_normalize_dest_canonicalizes_addresses_and_leaves_names_alone():
+    assert ledger.normalize_dest(UPPER) == LOWER
+    assert ledger.normalize_dest("  " + LOWER + " ") == LOWER
+    assert ledger.normalize_dest("frozen-factorio-ryan") == "frozen-factorio-ryan"
+    assert ledger.normalize_dest(None) == ""
