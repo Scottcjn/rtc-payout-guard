@@ -58,6 +58,14 @@ CREATE INDEX IF NOT EXISTS idx_obs_actor   ON observations(actor);
 
 
 def connect(path: str) -> sqlite3.Connection:
+    """Open (or create) the snapshot database at ``path`` and ensure its schema.
+
+    Runs the idempotent ``_SCHEMA`` script, then applies the two
+    ``ALTER TABLE`` migrations (``actor_id``, ``absent_since``) that were added
+    after the first release. ``OperationalError`` for an already-present
+    column is swallowed, so this is safe against databases at any schema
+    version. Returns a connection with a 10s busy timeout.
+    """
     conn = sqlite3.connect(path, timeout=10)
     conn.executescript(_SCHEMA)
     for col, decl in (("actor_id", "INTEGER"), ("absent_since", "INTEGER")):
