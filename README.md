@@ -141,3 +141,12 @@ recorded as such.
 `cross_reference_paid()` joins removals against a map of who was paid, which is
 the list that actually costs money: people who took RTC for a state they later
 reverted.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, the
+offline test workflow, and the rules for adding a new guard (every guard
+must be grounded in an *observed* failure mode and must fail closed).
+
+Documentation improvements — docstrings, README clarity, examples — are
+always welcome and need no failure-mode justification.

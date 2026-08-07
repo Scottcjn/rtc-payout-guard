@@ -26,11 +26,22 @@ EXIT_ERROR = 2
 
 
 def _load_json(path: str):
+    """Read a JSON file from disk and return the parsed object.
+
+    Raises ``FileNotFoundError`` / ``json.JSONDecodeError`` on failure; the
+    caller surfaces those as exit code 2 (tool error), not 0 or 1.
+    """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def _emit(result: dict, as_json: bool, lines: List[str]) -> None:
+    """Print a check result either as pretty JSON or as human-readable lines.
+
+    ``result`` is the full result dict (always emitted as JSON when
+    ``--json`` is set); ``lines`` are the pre-formatted text lines for the
+    non-JSON path. Exactly one of the two representations is printed.
+    """
     if as_json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
@@ -169,6 +180,12 @@ def _cmd_scan_injection(args) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Construct the argument parser with one subcommand per guard.
+
+    Each subcommand binds to an ``_cmd_*`` handler and returns the guard's
+    exit code (0 clean / 1 finding / 2 error). The parser is built fresh on
+    every invocation so tests can pass isolated argv lists.
+    """
     parser = argparse.ArgumentParser(
         prog="rtc-guard",
         description="Verification guards for RTC bounty payouts. "
@@ -222,6 +239,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """Parse argv, run the selected guard, and return its exit code.
+
+    Preserves the exit-code contract (0 clean / 1 finding / 2 error) across
+    argparse's own ``SystemExit`` and any runtime exception from a guard;
+    usage errors become exit code 2 and ``--help`` becomes 0.
+    """
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
