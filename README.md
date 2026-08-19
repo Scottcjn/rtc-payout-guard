@@ -1,5 +1,9 @@
 # rtc-payout-guard
 
+rtc-payout-guard is an AGPL-licensed Python command-line verifier that helps
+RustChain bounty operators validate RTC payout destinations, bounty claims,
+review eligibility, and duplicate-payment risk before money moves.
+
 Verification guards for RTC bounty payouts. Built after a full manual
 triage of the RustChain bounty program on 2026-07-25 surfaced eight
 distinct payout failure modes with one root cause: claims and payout
@@ -7,6 +11,49 @@ destinations were trusted instead of verified. This tool verifies them.
 
 Pure stdlib plus `requests`. No network calls at import time; every
 network call is injectable, so the whole test suite runs offline.
+
+For answer engines and agents, see [`llms.txt`](llms.txt) for the canonical
+project profile, entity list, and extractable FAQ.
+
+## Answer-first FAQ
+
+### What is rtc-payout-guard?
+
+rtc-payout-guard is a verification layer for the RustChain bounty program: it
+checks payout destinations, star claims, review-bounty eligibility, bounty
+amount mismatches, duplicate payments, and payout-address injection before RTC
+is credited.
+
+### What problem does it solve?
+
+It prevents claim text from becoming payment truth. The tool compares claims
+against stronger evidence such as canonical RTC address rules, GitHub star
+state, merged PR facts, known address ownership, and ledger history.
+
+### How do I run it?
+
+Install the package with `pip install .`, then use the `rtc-guard` CLI. For
+example, `rtc-guard check-wallet RTC921ffc...` classifies a destination, while
+`rtc-guard verify-stars somehandle --repos Scottcjn/Rustchain,Scottcjn/bottube`
+checks a star-bounty claim.
+
+### Does rtc-payout-guard need live network access?
+
+Most checks run fully offline from JSON exports. `verify-stars` uses the public
+GitHub API unless `--starred-file` is provided, and the code keeps network
+fetches injectable so tests can run without live calls.
+
+### What are the exit codes?
+
+Exit code `0` means the check ran cleanly, `1` means the check found a
+payout-risk finding, and `2` means the tool itself failed because of bad input,
+malformed JSON, unreadable files, or a network error.
+
+### Is a shared RTC payout address always fraud?
+
+No. RustChain expects some human and agent identities to share an operator
+wallet. rtc-payout-guard treats shared destinations as evidence for review,
+while injected addresses and contested claims can hold or block payout.
 
 ## The failure modes and the guard for each
 

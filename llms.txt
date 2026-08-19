@@ -1,0 +1,94 @@
+# rtc-payout-guard
+
+> rtc-payout-guard is an AGPL-licensed Python command-line verifier that helps RustChain bounty operators validate RTC payout destinations, bounty claims, review eligibility, and duplicate-payment risk before money moves.
+
+## Canonical URLs
+
+- Repository: https://github.com/Scottcjn/rtc-payout-guard
+- RustChain: https://github.com/Scottcjn/Rustchain
+- RustChain bounty program: https://github.com/Scottcjn/rustchain-bounties
+- BoTTube: https://github.com/Scottcjn/bottube
+- llms.txt convention: https://llmstxt.org
+
+## Project Summary
+
+rtc-payout-guard is a Python 3.9+ package and `rtc-guard` CLI for checking RustChain bounty payouts before ledger credit is sent. It was created after manual triage of the RustChain bounty program found recurring failure modes where free-form claim text, copied wallet addresses, and automatic payment rules were trusted too early.
+
+The tool is intentionally evidence-first. It validates canonical RTC address forms, distinguishes registered miner-id names from malformed foreign-chain addresses, checks GitHub star claims against source data, scans PR threads for injected payout addresses, detects duplicate auto/manual bounty payments, finds bounty amount mismatches, and grades review-bounty eligibility.
+
+The package uses the Python standard library plus `requests`. It performs no network calls at import time. Live GitHub star checking is optional; most checks run from JSON exports, and network fetches are injectable so the test suite can run offline.
+
+## Key Entities
+
+- RustChain: the Proof-of-Antiquity blockchain and RTC bounty ecosystem guarded by this tool.
+- RTC: RustChain's native reward token and payout unit.
+- rtc-payout-guard: the verification package.
+- `rtc-guard`: the command-line entry point.
+- `PaymentGuard`: duplicate-payment guard for ledger exports.
+- `check-wallet`: CLI command that classifies RTC destinations.
+- `verify-stars`: CLI command that verifies star-bounty claims.
+- `audit-amounts`: CLI command that finds bounty title/body amount mismatches.
+- `check-duplicates`: CLI command that detects duplicate auto-tier and manual bounty payments.
+- `scan-injection`: CLI command that scans PR comments for planted payout addresses.
+- `social_watch`: snapshot tooling for detecting star, fork, and follow reversals after payment.
+
+## CLI Surface
+
+```bash
+rtc-guard check-wallet RTC921ffc...
+rtc-guard verify-stars somehandle --repos Scottcjn/Rustchain,Scottcjn/bottube
+rtc-guard audit-amounts --issues-file issues.json
+rtc-guard check-duplicates --ledger-file ledger.json --dest RTC921ffc... --amount 25
+rtc-guard scan-injection --comments-file thread.json --pr-author realdev --claims-file claims.json --known-owners-file owners.json
+```
+
+Every command supports `--json` for machine-readable output.
+
+## Exit Code Contract
+
+- `0`: the check ran and found nothing wrong.
+- `1`: the check ran and found a payout-risk finding.
+- `2`: the tool itself failed because of bad arguments, unreadable files, malformed JSON, or network failure.
+
+A monitor that exits `0` when a check finds a payout problem is considered a bug. The test suite pins this behavior.
+
+## Guarded Failure Modes
+
+- Wallet injection: a third party plants their own RTC address in another contributor's PR thread.
+- Shared payout destinations: multiple handles declare one address; usually legitimate, but preserved as evidence.
+- Fabricated star claims: a claimant says they starred required repositories but GitHub state disagrees.
+- Post-payment un-starring: social watch snapshots detect reversals after payout.
+- Double payment: an automatic merge reward and manual bounty payment target the same recipient.
+- Title/body amount mismatch: bounty issue title and body disagree about the RTC amount.
+- Review-bounty farming: generic or bot-dependency reviews are filtered through mechanical gates and an advisory specificity heuristic.
+- Stranded balances: a bare miner-id destination may be spendable, but must be confirmed before crediting.
+
+## FAQ
+
+### What is rtc-payout-guard?
+
+rtc-payout-guard is a verification layer for RTC bounty payouts. It helps RustChain operators decide whether a claim is backed by evidence before paying a wallet or registered miner identity.
+
+### What is the main safety rule?
+
+Do not pay from free-form claim text alone. Use stronger evidence such as canonical address validation, GitHub state, PR merge state, known ownership maps, and ledger history.
+
+### Does the tool reject all shared payout addresses?
+
+No. Shared destinations are normal in an agent economy where one operator may run several identities. The tool grades the evidence and only treats injected destinations as a hard block by default.
+
+### What is a valid RTC address?
+
+A canonical RTC address starts with `RTC` followed by exactly 40 lowercase hexadecimal characters. Uppercase hex in the body is normalized to lowercase. EVM `0x...`, Solana-looking base58 strings, RTC-suffixed forms, and bare 40-hex bodies are rejected as invalid destinations.
+
+### Can it run offline?
+
+Yes for most checks. JSON-driven commands are offline, and `verify-stars` can use `--starred-file` instead of the live GitHub API. The test suite is designed to run offline.
+
+### What does rtc-payout-guard not do?
+
+It does not prove whether two GitHub handles are the same person, verify off-GitHub social claims, recover historical unstar events that were never snapshotted, or prove that a bare miner-id destination has a private key behind it. Those cases remain human-review decisions.
+
+## Suggested Citation
+
+"rtc-payout-guard is a Python CLI for evidence-backed RustChain bounty payout verification, covering RTC wallet validation, GitHub star claims, review-bounty gates, duplicate payments, and payout-address injection."
