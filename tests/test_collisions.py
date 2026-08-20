@@ -159,6 +159,31 @@ def test_bot_posting_its_own_address_on_others_pr_is_foreign_owner():
     assert verdict.disposition == "hold_for_review"
 
 
+def test_bot_posting_its_own_previously_claimed_address_on_others_pr_is_foreign_owner():
+    # FlintLeng variant where the bot's address is NOT yet in the
+    # authoritative registry, only self-declared earlier via a claim (e.g.
+    # a throwaway issue the bot posted itself). That's cheap for an
+    # attacker: self-declare once, then plant the same address in a
+    # victim's PR thread. The injection gate still doesn't fire (commenter
+    # owns the address per the claims history), but paying the PR author
+    # there is still wrong and must not fall through to SAFE just because
+    # there is no registry entry yet.
+    omap = collisions.build_ownership_map(
+        [{"handle": "FlintLeng-bot", "address": ADDR, "source_url": "", "timestamp": 1}]
+    )
+    verdict = collisions.check_destination(
+        handle="real-contributor",
+        address=ADDR,
+        ownership_map=omap,
+        known_owners={},
+        comment_author="FlintLeng-bot",
+        pr_author="real-contributor",
+    )
+    assert verdict.status == collisions.FOREIGN_OWNER
+    assert verdict.disposition == "hold_for_review"
+    assert "FlintLeng-bot" in verdict.reason
+
+
 def test_foreign_owner_when_payee_never_declared_registry_address():
     known = {ADDR: "someone-else"}
     verdict = collisions.check_destination(

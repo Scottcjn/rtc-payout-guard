@@ -13,9 +13,10 @@ grades the evidence instead of shouting "collision":
   else is wrong. Common, usually legitimate (human + agent pair).
   Disposition: proceed, note it. The verdict carries the full claim list
   so a human can judge quickly (who declared first, when, from where).
-- ``FOREIGN_OWNER``: the authoritative owner registry says the address
-  belongs to a different handle and the payee never declared it
-  themselves. Disposition: hold for human review.
+- ``FOREIGN_OWNER``: the address belongs to a different handle - per the
+  authoritative owner registry, or (absent a registry entry) per who
+  claimed it first - and the payee never declared it themselves.
+  Disposition: hold for human review.
 - ``CONTESTED_CLAIM``: the payee claims an address FIRST declared by a
   demonstrably different party, and the payee independently shows bad
   signals (fabricated claims elsewhere, template placeholders, claiming
@@ -235,9 +236,20 @@ def check_destination(
             evidence=evidence,
         )
 
+    # Owner of record for this address: the authoritative registry if it
+    # has an entry, else whoever claimed it first. Falling back to
+    # first_declarer matters because the INJECTED exemption above already
+    # treats first_declarer as proof of ownership (comment_author in
+    # owners); without the same fallback here, an attacker can self-declare
+    # an address once in a throwaway issue (cheap, no registry entry
+    # needed) and then plant it in someone else's PR thread - the
+    # comment_author-owns-it exemption clears INJECTED, and with no
+    # registry entry this check used to fall through to SAFE instead of
+    # holding for review.
+    owner_of_record = registry_owner if registry_owner is not None else first_declarer
     if (
-        registry_owner is not None
-        and registry_owner != handle
+        owner_of_record is not None
+        and owner_of_record != handle
         and handle not in claimants
     ):
         return Verdict(
@@ -245,8 +257,8 @@ def check_destination(
             handle=handle,
             address=address,
             reason=(
-                f"registry says this address belongs to {registry_owner!r} and "
-                f"{handle!r} never declared it; hold for human review"
+                f"{'registry says this address belongs to' if registry_owner is not None else 'this address was first declared by'} "
+                f"{owner_of_record!r} and {handle!r} never declared it; hold for human review"
             ),
             evidence=evidence,
         )
