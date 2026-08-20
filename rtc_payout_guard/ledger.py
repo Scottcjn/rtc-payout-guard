@@ -11,6 +11,13 @@ Ledger row shape (dicts):
     ``reason``     e.g. ``admin_transfer`` or ``bounty:<ref>``
     ``timestamp``  unix epoch seconds
     ``ref``        optional payment reference
+
+Destinations are canonicalized before they are compared (see
+:func:`normalize_dest`). ``RTC921FFC...`` and ``RTC921ffc...`` are the same
+wallet - :mod:`.wallets` says so explicitly and accepts both - so comparing
+them as raw strings makes a duplicate look like a first payment. Ledger rows
+come from whatever the payout system recorded, which is often the form the
+contributor typed into a claim comment, not the canonical form.
 """
 
 from __future__ import annotations
@@ -20,6 +27,8 @@ import re
 import time
 from typing import Callable, Iterable, List, Optional
 
+from . import wallets
+
 AUTO_TIER_REASON = "admin_transfer"
 MANUAL_REASON_PREFIX = "bounty:"
 DEFAULT_DUPLICATE_WINDOW_S = 7 * 86400
@@ -28,6 +37,20 @@ _IDEMPOTENCY_ALLOWED_RE = re.compile(r"[^A-Za-z0-9._:\-]")
 _IDEMPOTENCY_MAX_LEN = 128
 
 LedgerReader = Callable[[], Iterable[dict]]
+
+
+def normalize_dest(dest) -> str:
+    """Canonical comparison form of a payout destination.
+
+    A valid RTC address is returned in canonical lowercase form (hex is
+    case-insensitive, and :mod:`.wallets` already treats an uppercase body
+    as the same wallet). Anything else - miner-id names, unregistered
+    strings - is only stripped of surrounding whitespace, because a
+    registered payout identity is a name and names are not ours to
+    case-fold. Missing or empty destinations normalize to ``""``.
+    """
+    s = "" if dest is None else str(dest).strip()
+    return wallets.normalize_address(s) or s
 
 
 class PaymentGuard:
@@ -52,13 +75,20 @@ class PaymentGuard:
 
         Returns matching rows (empty list means safe to send). Amount
         comparison uses a 1e-6 RTC tolerance to survive float round-trips.
+        Destinations are matched in canonical form, so a ledger row that
+        recorded the address as the contributor typed it still matches a
+        pending payment to the canonical form of the same wallet. Rows with
+        no destination are skipped: there is nothing to compare them to.
         """
         now = time.time() if now is None else now
         cutoff = now - lookback_days * 86400
+        wanted = normalize_dest(dest)
+        if not wanted:
+            return []
         return [
             row
             for row in self._read()
-            if row.get("dest") == dest
+            if normalize_dest(row.get("dest")) == wanted
             and abs(float(row.get("amount_rtc", 0)) - amount) < 1e-6
             and float(row.get("timestamp", 0)) >= cutoff
         ]
@@ -78,7 +108,11 @@ def detect_auto_tier_duplicates(
 
     Returns findings as ``{"dest", "auto_row", "manual_row",
     "seconds_apart"}``, one per (auto, manual) pair, ordered by the auto
-    row's timestamp.
+    row's timestamp. ``dest`` is the canonical form of the destination;
+    the raw rows are carried through untouched. Destinations are matched
+    canonically, so an auto row and a manual row that spell the same
+    wallet differently still pair up. Rows with no destination are skipped
+    rather than matched against each other.
     """
     refs = set(manual_refs) if manual_refs is not None else None
     rows = list(rows)
@@ -91,14 +125,17 @@ def detect_auto_tier_duplicates(
     ]
     findings = []
     for auto in autos:
+        auto_dest = normalize_dest(auto.get("dest"))
+        if not auto_dest:
+            continue
         for manual in manuals:
-            if auto.get("dest") != manual.get("dest"):
+            if auto_dest != normalize_dest(manual.get("dest")):
                 continue
             gap = abs(float(auto.get("timestamp", 0)) - float(manual.get("timestamp", 0)))
             if gap <= window_seconds:
                 findings.append(
                     {
-                        "dest": auto.get("dest"),
+                        "dest": auto_dest,
                         "auto_row": auto,
                         "manual_row": manual,
                         "seconds_apart": gap,
